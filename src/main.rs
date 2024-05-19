@@ -5,6 +5,9 @@ mod linear_regression;
 use nalgebra::DMatrix;
 
 use derivs_better::{matrix_fn_forward_sum, matrix_fn_backward_sum_1};
+use linear_regression::{Weights};
+
+use crate::linear_regression::initialise_weights;
 
 // Make some function and compute the it's derivative
 
@@ -47,12 +50,18 @@ fn main() {
     println!("{}", matrix_fn_forward_sum(&X, &W, sigmoidV2));
 
     println!("{}", matrix_fn_backward_sum_1(&X, &W, sigmoidV2, 0.001));
+
+    println!("Moving onto linear regression...");
+    println!("Construct a struct of randomly initialised weights");
+
+    let rand_weights: Weights = initialise_weights(10);
+    println!("matrix weights: {}, intercept coef: {}", rand_weights.W, rand_weights.B);
     
 }
 
 #[cfg(test)]
 mod tests {
-    use nalgebra::DMatrix;
+    use nalgebra::{DMatrix, DMatrixView};
     use approx::relative_eq;
 
     use super::*;
@@ -94,5 +103,27 @@ mod tests {
         ]);
         
         relative_eq!(matrix_fn_backward_sum_1(&X, &W, sigmoidV2, 0.001), sol);
+    }
+
+    #[test]
+    fn test_matrix_slice() {
+        let mat: DMatrix<f32> = DMatrix::from_row_slice(4, 4, &[
+            1.0, 2.0, 3.0, 4.0,
+            5.0, 6.0, 7.0, 8.0,
+            9.0, 10.0, 11.0, 12.0,
+            13.0, 14.0, 15.0, 16.0,
+        ]);
+
+        let view: DMatrixView<f32> = mat.view((1, 1), (2, 2));
+        let expected_view: DMatrix<f32> = DMatrix::from_row_slice(2, 2, &[
+            6.0, 7.0,
+            10.0, 11.0
+        ]);
+        let notexpected_view: DMatrix<f32> = DMatrix::from_row_slice(2, 2, &[
+            6.0, 7.0,
+            10.0, 12.0
+        ]);
+        assert_eq!(view, expected_view);
+        assert_ne!(view, notexpected_view);
     }
 }
