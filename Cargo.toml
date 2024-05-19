@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-num-traits = "0.2"
-nalgebra   = "0.32.5" 
-approx     = "0.5.1" 
-rand_distr = "0.4.3"
-rand       = "0.8.5"
+num-traits   = "0.2"
+nalgebra     = "0.32.5" # Tagged for removal 
+approx       = "0.5.1" 
+rand_distr   = "0.4.3"
+rand         = "0.8.5"
+ndarray      = {version = "0.15.0", features=["blas"]}
+blas-src     = {version = "0.8", features=["openblas"]}
+openblas-src = {version = "0.10", features = ["cblas", "system"]}
+
