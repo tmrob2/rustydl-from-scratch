@@ -11,7 +11,10 @@ The training function for linear regression has the following workflow:
 */
 
 //use nalgebra::{DMatrix, DMatrixView};
-use ndarray::{Array2, ArrayView2, Axis};
+use numpy::ndarray::{Array2, ArrayView2, Axis};
+use numpy::PyReadonlyArrayDyn;
+use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
+use pyo3::{pyclass, pymethods, Bound, Python};
 use rand_distr::StandardNormal;
 use rand::prelude::*;
 use rand::SeedableRng;
@@ -19,10 +22,36 @@ use rand::seq::SliceRandom;
 use rand::rngs::StdRng;
 
 
+#[pyclass]
 pub struct LinearRegression {
     pub losses: Vec<f32>,
-    pub weights: Weights,
+    weights: Weights,
     batch_permutation: Vec<usize>
+}
+
+#[pymethods]
+impl LinearRegression {
+    #[new]
+    pub fn new() -> Self {
+        LinearRegression {
+            losses: Vec::new(),
+            weights: Weights::new(),
+            batch_permutation: Vec::new()
+        }
+    }
+
+    pub fn fit(&mut self, X: PyReadonlyArray2<f32>, y: PyReadonlyArray2<f32>, 
+               n_iter: usize, batch_size: usize, learning_rate: f32, return_losses:bool,
+               seed: u64) {
+        self._fit(X.as_array().view(), y.as_array().view(), 
+                  n_iter, learning_rate, batch_size, return_losses, seed);
+    }
+
+    pub fn predict<'py>(&mut self, py: Python<'py>, X: PyReadonlyArray2<f32>) -> Bound<'py, PyArray2<f32>> {
+        let pred = self._predict(X.as_array().view());
+        pred.into_pyarray_bound(py)
+    }
+
 }
 
 impl LinearRegression {
@@ -34,8 +63,8 @@ impl LinearRegression {
         self.batch_permutation = new_order;
     }
 
-    fn fit(&mut self, X: ArrayView2<f32>, y: ArrayView2<f32>, n_iter: usize, 
-           learning_rate: f32, mut batch_size: usize, return_losses: bool, seed: u64) {
+    fn _fit(&mut self, X: ArrayView2<f32>, y: ArrayView2<f32>, n_iter: usize, 
+        learning_rate: f32, mut batch_size: usize, return_losses: bool, seed: u64) {
         /*
         Train the model for a number of epochs
         */
@@ -69,7 +98,7 @@ impl LinearRegression {
             }
 
             // select a segment of the random permuation of indices
-            let batch_selection = &self.batch_permutation[start..batch_size];
+            let batch_selection = &self.batch_permutation[start..(start + batch_size)];
             
             // slide the window forward
             start += batch_size;
@@ -87,7 +116,10 @@ impl LinearRegression {
             }
             
             let loss_weights = loss_gradients(&forward_info, &weights);
+            //println!("Return from loss => W: {:?}, B: {:?}", loss_weights.W.shape(), loss_weights.B.shape());
+            //println!("W:\n{}\nB:\n{}", loss_weights.W, loss_weights.B);
             weights.W -= &(learning_rate * loss_weights.W);
+            weights.B -= &(learning_rate * loss_weights.B);
         }
 
         self.losses = losses;
@@ -95,8 +127,11 @@ impl LinearRegression {
         
     }
 
+    fn _predict(&mut self, X: ArrayView2<f32>) -> Array2<f32> {
+        let N: Array2<f32> = X.dot(&self.weights.W);
+        N + &self.weights.B
+    }
 }
-
 
 
 pub struct ForwardPass<'a> {
@@ -107,24 +142,38 @@ pub struct ForwardPass<'a> {
     pub loss: f32
 }
 
-pub struct Weights {
-    pub W: Array2<f32>,
-    pub B: Array2<f32>
+struct Weights {
+    W: Array2<f32>,
+    B: Array2<f32>
+}
+
+impl Weights {
+    pub fn new() -> Self {
+        Weights {
+            W: Array2::default((0, 0)),
+            B: Array2::default((0, 0))
+        }
+    }
 }
 
 // A function which computes the loss of the forward pass through the computational graph for
 // linear regression. Where possible we use matrix views so that we are not creating memory
 // allocations. 
-pub fn forward_loss<'a>(X: ArrayView2<'a, f32>, 
+fn forward_loss<'a>(X: ArrayView2<'a, f32>, 
                         y: ArrayView2<'a, f32>, 
                         weights: &Weights) -> ForwardPass<'a> {
     // Make sure that all of the dimensions align correctly
-    assert_eq!(X.ncols(), y.nrows());
-    assert_eq!(X.ncols(), weights.W.nrows());
-    assert_eq!(weights.B.nrows(), weights.B.ncols());
+    //println!("Shape X: {:?}, shape y: {:?}, shape W: {:?}, B: {:?}", 
+    //    X.shape(), y.shape(), weights.W.shape(), weights.B.shape());
 
+    assert_eq!(X.nrows(), y.nrows(), "The rows of X do not match the rows of y");
+    assert_eq!(X.ncols(), weights.W.nrows(), "The cols of X does not match the rows of W");
+    assert_eq!(weights.B.nrows(), weights.B.ncols(), "B is not a scalar with a single dimenstion");
+    //println!("attempting to multiply X with W");
     let N: Array2<f32> = X.dot(&weights.W);
+    //println!("attempting to add X.W to B");
     let P: Array2<f32> = &N + &weights.B;
+    //println!("attempting to sum the rows of y with P, P shape: {:?}", P.shape());
     let loss: f32 = (&y + &P).map(|x| x*x).sum() / (y.nrows() as f32);
     ForwardPass {
         X,
@@ -136,7 +185,7 @@ pub fn forward_loss<'a>(X: ArrayView2<'a, f32>,
 }
 
 // Initialise the weights of the first forward pass of the model
-pub fn initialise_weights(n_in: usize) -> Weights {
+fn initialise_weights(n_in: usize) -> Weights {
 
     let weights: Vec<f32> = (0..n_in).map(|_| thread_rng().sample(StandardNormal)).collect();
     let W: Array2<f32> = Array2::from_shape_vec((n_in, 1), weights).unwrap();
@@ -147,30 +196,35 @@ pub fn initialise_weights(n_in: usize) -> Weights {
     }
 }
 
-pub fn loss_gradients(forward_info: &ForwardPass, weights: &Weights) -> Weights {
+fn loss_gradients(forward_info: &ForwardPass, weights: &Weights) -> Weights {
     //let batch_size = forward_info.X.nrows();
 
     // L = Lambda(P, Y) = (Y - P)^2 -> dL/dP = -2 * (Y - P)
+    //println!("Attempting to substract p from y in forward info");
     let dLdP: Array2<f32> = -2.0 * (&forward_info.y - &forward_info.P);
     // P = N + B -> dP/dN = 1s 
     let dPdN: Array2<f32> = Array2::from_elem((forward_info.N.nrows(),forward_info.N.ncols()),1f32);
     // P = N + B -> dP/dB = 1s
     let dPdB: Array2<f32> = Array2::from_elem((weights.B.nrows(), weights.B.ncols()), 1f32);
     // chain rule
-    let dLdN: Array2<f32> = &dLdP * dPdN;
+    //println!("dLdP shape: {:?}, dPdN shape: {:?}", dLdP.shape(), dPdN.shape());
+    let dLdN: Array2<f32> = &dLdP * &dPdN;
 
     // Now N = X . W -> dNdW = X^T
     let dNdW: ArrayView2<f32> = forward_info.X.t();
-
-    // chain rule all the way back
-    let dLdW: Array2<f32> = &dNdW * &dLdN;
     
+    //println!("dNdW shape: {:?}, dLdN shape: {:?}", dNdW.shape(), dLdN.shape());
+    // chain rule all the way back
+    let dLdW: Array2<f32> = dNdW.dot(&dLdN);
+    
+    //println!("dLdP shape: {:?}, dPdB shape: {:?}", &dLdP.shape(), dPdB.shape());
     // chain rule to B
-    let row_vector = (dLdP * dPdB).sum_axis(Axis(1));
+    let row_vector = (dLdP * &dPdB).sum_axis(Axis(0));
+
     // currently representing this a column vector
     Weights {
         W: dLdW,
-        B: row_vector.into_shape((1, 1)).unwrap() // unfortunately this is a Array1 so we need to do a conversion to array2
+        B: row_vector.insert_axis(Axis(0)) // unfortunately this is a Array1 so we need to do a conversion to array2
     }
 }
 

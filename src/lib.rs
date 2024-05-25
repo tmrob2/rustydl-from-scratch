@@ -1,15 +1,46 @@
-
 #![allow(non_snake_case, dead_code)]
 mod derivs_better;
 mod linear_regression;
 
-use derivs_better::{matrix_fn_backward_sum_1, matrix_fn_forward_sum};
-use linear_regression::Weights;
-use ndarray::Array2;
+use pyo3::prelude::*;
+use numpy::ndarray::{ArrayD, ArrayViewD, ArrayViewMutD};
+use numpy::{IntoPyArray, PyArrayDyn, PyReadonlyArrayDyn};
+use linear_regression::LinearRegression; 
 
-use crate::linear_regression::initialise_weights;
+/// Formats the sum of two numbers as string.
+#[pymodule]
+fn rust_dl<'py>(_py: Python<'py>, m: &Bound<'py, PyModule>) -> PyResult<()> {
+    // write a wrapper for linear regression
+    fn axpy(a: f64, x: ArrayViewD<'_, f64>, y: ArrayViewD<'_, f64>) -> ArrayD<f64> {
+        a * &x + &y
+    }
 
-// Make some function and compute the it's derivative
+    // example using a mutable borrow to modify an array in-place
+    fn mult(a: f64, mut x: ArrayViewMutD<'_, f64>) {
+        x *= a;
+    }
+
+    // wrapper of `axpy`
+    #[pyfn(m)]
+    #[pyo3(name = "axpy")]
+    fn axpy_py<'py>(
+        py: Python<'py>,
+        a: f64,
+        x: PyReadonlyArrayDyn<'py, f64>,
+        y: PyReadonlyArrayDyn<'py, f64>,
+    ) -> Bound<'py, PyArrayDyn<f64>> {
+        let x = x.as_array();
+        let y = y.as_array();
+        let z = axpy(a, x, y);
+        z.into_pyarray_bound(py)
+    }
+
+    // Linear Regression Class
+    m.add_class::<LinearRegression>()?;
+
+    Ok(())
+}
+
 
 fn square(v: &[f32]) -> Vec<f32> {
     let u = v.iter().map(|x| x * x).collect();
@@ -29,37 +60,6 @@ fn sigmoidV2(x: f32) -> f32 {
     1f32 / (1f32 + (-x).exp())
 }
 
-fn main() {
-
-    let X: Array2<f32> = Array2::from_shape_vec((1, 3), vec![1., 2., 3.]).unwrap();
-    let W: Array2<f32> = Array2::from_shape_vec((1, 3), vec![0.1, 0.2, 0.3]).unwrap();
-    println!("{:?}", &X * &W.t());
-
-    let X= Array2::from_shape_vec((3, 3), vec![
-        -1.57752816, -0.6664228 ,  0.63910406,
-        -0.56152218,  0.73729959, -1.42307821,
-        -1.44348429, -0.39128029,  0.1539322 
-    ]).unwrap();
-
-    let W = Array2::from_shape_vec((3, 2), vec![
-        0.75510818,  0.25562492,
-        -0.56109271, -0.97504841,
-        0.98098478, -0.95870776
-    ]).unwrap();
-
-    println!("{}", matrix_fn_forward_sum(&X, &W, sigmoidV2));
-
-    println!("{}", matrix_fn_backward_sum_1(&X, &W, sigmoidV2, 0.001));
-
-    println!("Moving onto linear regression...");
-    println!("Construct a struct of randomly initialised weights");
-
-    let rand_weights: Weights = initialise_weights(10);
-    println!("matrix weights:\n{}\n\nintercept coef:\n{}", rand_weights.W, rand_weights.B);
-
-}
-
-
 
 #[cfg(test)]
 mod tests {
@@ -67,6 +67,7 @@ mod tests {
     use approx::abs_diff_eq;
 
     use super::*;
+    use derivs_better::matrix_fn_backward_sum_1;
 
     #[test]
     fn test_square_elements() {
