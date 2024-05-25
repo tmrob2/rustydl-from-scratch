@@ -11,14 +11,93 @@ The training function for linear regression has the following workflow:
 */
 
 //use nalgebra::{DMatrix, DMatrixView};
-use ndarray::{Array2, ArrayView2, s, Axis};
+use ndarray::{Array2, ArrayView2, Axis};
 use rand_distr::StandardNormal;
 use rand::prelude::*;
+use rand::SeedableRng;
+use rand::seq::SliceRandom;
+use rand::rngs::StdRng;
 
-pub struct Batch<'a> {
-    pub X: ArrayView2<'a, f32>,
-    pub y: ArrayView2<'a, f32>
+
+pub struct LinearRegression {
+    pub losses: Vec<f32>,
+    pub weights: Weights,
+    batch_permutation: Vec<usize>
 }
+
+impl LinearRegression {
+
+    pub fn permute_data(&mut self, nrows: usize, seed: u64) {
+        let mut new_order: Vec<usize> = (0..nrows).collect();
+        let mut rng = StdRng::seed_from_u64(seed);
+        new_order.as_mut_slice().shuffle(&mut rng);
+        self.batch_permutation = new_order;
+    }
+
+    fn fit(&mut self, X: ArrayView2<f32>, y: ArrayView2<f32>, n_iter: usize, 
+           learning_rate: f32, mut batch_size: usize, return_losses: bool, seed: u64) {
+        /*
+        Train the model for a number of epochs
+        */
+        let mut start: usize = 0;
+
+        // Initialise the weights
+        let mut weights = initialise_weights(X.ncols());
+        
+        let mut losses: Vec<f32> = if return_losses {
+            Vec::with_capacity(n_iter)
+        } else {
+            Vec::new()
+        };
+
+        // generate a random permutation of indices based on the size of X
+        self.permute_data(X.nrows(), seed);
+
+        for _ in 0..n_iter {
+            // if the available index selection is smaller than the batch size, then
+            // reselect the random ordering
+            if start >= X.nrows() {
+                self.permute_data(X.nrows(), seed);
+                start = 0; // reset start here
+            } 
+            
+            // Generate a batch
+            if start + batch_size > X.nrows() {
+                // should really throw an error here because this means that the batch
+                // size is too large...
+                batch_size = X.nrows() - start;
+            }
+
+            // select a segment of the random permuation of indices
+            let batch_selection = &self.batch_permutation[start..batch_size];
+            
+            // slide the window forward
+            start += batch_size;
+            
+            // Train based on the generated batch
+            // TODO Personally, I don't like this implementation but I can't think of anything else at the moment
+            //  The problem is that the data matrix is being copied each time that this batch selection is going on
+            //  This does not seem like an efficient way of solving this problem
+            let X_: Array2<f32> = X.select(Axis(0), &batch_selection);
+            let y_: Array2<f32> = y.select(Axis(0), &batch_selection); 
+            let forward_info = forward_loss(X_.view(), y_.view(), &weights);
+            
+            if return_losses {
+                losses.push(forward_info.loss);
+            }
+            
+            let loss_weights = loss_gradients(&forward_info, &weights);
+            weights.W -= &(learning_rate * loss_weights.W);
+        }
+
+        self.losses = losses;
+        self.weights = weights;
+        
+    }
+
+}
+
+
 
 pub struct ForwardPass<'a> {
     pub X: ArrayView2<'a, f32>,
@@ -31,26 +110,6 @@ pub struct ForwardPass<'a> {
 pub struct Weights {
     pub W: Array2<f32>,
     pub B: Array2<f32>
-}
-
-// A function which generates a batch from a matrix which is stored on the heap. The
-// function is efficient in the sense that is returns a Batch<'a> which is just a 
-// view of the matrices X, and y
-// X: 2-dimensional matrix of type f32 -> TODO could generalise the number type
-// y: 2-dimensional matrix -> Really this is a column vector (n, 1) dimensional matrix, always. 
-// Returns a Batch<'a> for whos elements lives the same lifetime as the matrices X, y
-// A batch consists of a X, y -> feature matrix, target matrix resp. 
-pub fn generate_batch<'a>(X: &'a Array2<f32>, // TODO possibly change the type here to view
-                          y: &'a Array2<f32>, // ^
-                          start: usize, 
-                          mut batch_size: usize) -> Batch<'a> {
-    if start + batch_size > X.nrows() {
-        batch_size = X.nrows() - start;
-    }
-    Batch {
-        X: X.slice(s![start..batch_size,..]),
-        y: y.slice(s![start..batch_size,..])
-    }
 }
 
 // A function which computes the loss of the forward pass through the computational graph for

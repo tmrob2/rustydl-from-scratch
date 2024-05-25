@@ -3,7 +3,7 @@
 mod derivs_better;
 mod linear_regression;
 
-use derivs_better::{matrix_fn_forward_sum, matrix_fn_backward_sum_1};
+use derivs_better::{matrix_fn_backward_sum_1, matrix_fn_forward_sum};
 use linear_regression::Weights;
 use ndarray::Array2;
 
@@ -58,6 +58,8 @@ fn main() {
     println!("matrix weights:\n{}\n\nintercept coef:\n{}", rand_weights.W, rand_weights.B);
 
 }
+
+
 
 #[cfg(test)]
 mod tests {
