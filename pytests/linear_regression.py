@@ -17,7 +17,6 @@ s = StandardScaler()
 data = s.fit_transform(data)
 
 lr = rust_dl.LinearRegression()
-# TODO The arrays must be two dimensions, also need to handle the errors for this
 x_train, x_test, y_train, y_test = train_test_split(data, target, test_size=0.3, random_state=80718)
 
 print(x_train.shape, y_train.shape, x_test.shape, y_test.shape)

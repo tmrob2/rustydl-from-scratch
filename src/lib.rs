@@ -1,6 +1,8 @@
 #![allow(non_snake_case, dead_code)]
 mod derivs_better;
 mod linear_regression;
+mod manual_nn;
+mod metrics;
 
 use pyo3::prelude::*;
 use numpy::ndarray::{ArrayD, ArrayViewD, ArrayViewMutD};

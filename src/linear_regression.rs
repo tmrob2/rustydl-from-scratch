@@ -12,7 +12,6 @@ The training function for linear regression has the following workflow:
 
 //use nalgebra::{DMatrix, DMatrixView};
 use numpy::ndarray::{Array2, ArrayView2, Axis};
-use numpy::PyReadonlyArrayDyn;
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
 use pyo3::{pyclass, pymethods, Bound, Python};
 use rand_distr::StandardNormal;
@@ -159,9 +158,7 @@ impl Weights {
 // A function which computes the loss of the forward pass through the computational graph for
 // linear regression. Where possible we use matrix views so that we are not creating memory
 // allocations. 
-fn forward_loss<'a>(X: ArrayView2<'a, f32>, 
-                        y: ArrayView2<'a, f32>, 
-                        weights: &Weights) -> ForwardPass<'a> {
+fn forward_loss<'a>(X: ArrayView2<'a, f32>, y: ArrayView2<'a, f32>, weights: &Weights) -> ForwardPass<'a> {
     // Make sure that all of the dimensions align correctly
     //println!("Shape X: {:?}, shape y: {:?}, shape W: {:?}, B: {:?}", 
     //    X.shape(), y.shape(), weights.W.shape(), weights.B.shape());
@@ -186,7 +183,6 @@ fn forward_loss<'a>(X: ArrayView2<'a, f32>,
 
 // Initialise the weights of the first forward pass of the model
 fn initialise_weights(n_in: usize) -> Weights {
-
     let weights: Vec<f32> = (0..n_in).map(|_| thread_rng().sample(StandardNormal)).collect();
     let W: Array2<f32> = Array2::from_shape_vec((n_in, 1), weights).unwrap();
     let B: Array2<f32> = Array2::from_shape_vec((1,1),vec![thread_rng().sample(StandardNormal)]).unwrap();
